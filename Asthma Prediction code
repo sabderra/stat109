@@ -1,0 +1,13 @@
+mydata=read.csv("https://raw.githubusercontent.com/sabderra/stat109/master/data/500_city_asthma_with_aq_housing_census.csv")
+mydata=na.omit(mydata)
+fit=lm(AsthmaPct~PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+
+         PhysicalAct+CO2ndMax8hr+NO2Mean1hr+Ozone4thMax8hr+SO2Mean1hr+
+         PM25WeightedMean24hr+PM10Mean24hr+DayswithAQI+GoodDays+
+         ModerateDays+UnhealthyforSensitiveGroupsDays+HazardousDays+
+         MaxAQI+X90thPercentileAQI+MedianAQI+DaysCO+DaysNO2+DaysOzone+
+         DaysSO2+DaysPM25+DaysPM10+RenterOccupiedPct+UnempRatePct+
+         CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+
+         BelowPovLevelPct,mydata)
+summary(fit)
+plot(fit)
+plot(fit,which=4)
