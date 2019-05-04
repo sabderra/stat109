@@ -1,0 +1,931 @@
+---
+title: "STAT 109 Project Spring 2019: Asthma Predictors"
+output: pdf_document
+---
+
+
+## Requires the following packages to be installed:
+#install.packages('alr3')
+#install.packages('R330')
+#install.packages("glmnet")
+#install.packages('ggmap')
+#source("http://people.fas.harvard.edu/~mparzen/stat100/model_select.txt")
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Glossary of Data Frames
+data - raw csv contents.
+mydata - updates to the raw csv such as additional columns or adjustments.
+mydata_sub - A subset of the data the removes unneeded columns
+xformed_data - The transformed mydata_sub
+train.set - The xformed_data used for training.
+test.set - The xformed_data used for testing.
+
+
+```{r}
+#load data 
+data=read.csv("https://raw.githubusercontent.com/sabderra/stat109/master/data/500_city_asthma_with_aq_housing_census.csv")
+
+# Save the original data and do all the expansion with mydata
+mydata = data
+
+#state dummy variables
+ntheast=c('CT', 'ME', 'MA', 'NH', 'RI', 'VT', 'NJ', 'NY', 'PA')
+midw=c('ND','MN','SD','NE','KS','IA','MO','IL','WI','MI','IN','OH')
+south=c('DE', 'FL','GA', 'MD', 'NC', 'SC', 'VA', 'DC', 'WV', 'AL', 'KY', 
+        'MS', 'TN', 'AK', 'LA', 'OK', 'TX')
+west=c('AZ', 'CO', 'ID', 'MT', 'NV', 'NM', 'UT', 'WY', 'AL', 'CA', 'HW', 'OR', 'WA')
+
+mydata$Midwest<- 0
+mydata$Northeast<- 0
+mydata$South<- 0
+#mydata$West<- 0
+
+n = nrow(mydata)
+for(j in 1:n){ #loop over rows
+  if (data[j,]$StateAbbr %in% midw){mydata[j,]$Midwest = 1}
+  else if(data[j,]$StateAbbr %in% ntheast){mydata[j,]$Northeast = 1}
+  else if(data[j,]$StateAbbr %in% south){mydata[j,]$South = 1}
+  #else if(mydata_sub[j,]$StateAbbr %in% west){mydata_sub[j,]$West = 1}
+}
+```
+
+
+Add a column that maps the AQI into the levels defined by: https://airnow.gov/index.cfm?action=aqibasics.aqi
+
+```{r}
+n = nrow(mydata)
+mydata$MaxAQI2<-0
+for(j in 1:n){ #loop over rows
+  if ( ! is.na(mydata[j,]$MaxAQI)) {
+    if(mydata[j,]$MaxAQI > 300){mydata[j,]$MaxAQI2 = 6}
+    else if((mydata[j,]$MaxAQI >200 ) && (mydata[j,]$MaxAQI<=300)){mydata[j,]$MaxAQI2 = 5}
+    else if((mydata[j,]$MaxAQI >150 ) && (mydata[j,]$MaxAQI<=200)){mydata[j,]$MaxAQI2 = 4}
+    else if((mydata[j,]$MaxAQI >100 ) && (mydata[j,]$MaxAQI<=150)){mydata[j,]$MaxAQI2 = 3}
+    else if((mydata[j,]$MaxAQI >50 ) && (mydata[j,]$MaxAQI<=100)){mydata[j,]$MaxAQI2 = 2}
+    else if((mydata[j,]$MaxAQI >=0 ) && (mydata[j,]$MaxAQI<=50)){mydata[j,]$MaxAQI2 = 1}
+  } else {
+    mydata[j,]$MaxAQI2 = NA
+  }
+}
+
+```
+
+
+```{r}
+mydata_sub=mydata[ , -which(names(mydata) %in% c("Year", "StateAbbr", "StateDesc", "CityName",                 "CO2ndMax8hr","NO2Mean1hr","Ozone4thMax8hr","SO2Mean1hr", "PM25WeightedMean24hr","PM10Mean24hr","DayswithAQI","DaysCO","DaysNO2","DaysOzone","DaysSO2","DaysPM25","DaysPM10","X90thPercentileAQI"))]
+
+# Previous the following were also removed.
+#"GoodDays", "ModerateDays", "UnhealthyforSensitiveGroupsDays", "UnhealthyDays", "VeryUnhealthyDays","HazardousDays"
+
+cat("Original data dimensions:", dim(mydata), "\n")
+cat("After purging unneeded columns:", dim(mydata_sub), "\n")
+mydata_sub=na.omit(mydata_sub)
+cat("After purging na:", dim(mydata_sub), "\n")
+```
+
+
+This plot shows the difference after NAs (blue) cities are omited. While there is a spattering, there is a concentration in the South East of cities that were omitted.
+
+```{r}
+# to install: install.packages('ggmap')
+library(ggmap)
+
+ggmap::register_google(key="AIzaSyBfw9xeNd1giAnLbpCTabTrnrFx9noHmak")
+map = get_googlemap(location = geocode("united states"), source="google",
+                    zoom = 4, scale = 2,
+                    maptype ='terrain',
+                    color = 'color')
+
+
+df.ommited = mydata[!(mydata$Lat %in% mydata_sub$Lat),]
+
+mapPoints = ggmap(map) + 
+  geom_point(aes(x = Lng, y = Lat, size=AsthmaPct), data=df.ommited, alpha=0.5, color="blue") +
+  geom_point(aes(x = Lng, y = Lat, size=AsthmaPct), data=mydata_sub, alpha=0.5, color="darkred")
+
+mapPoints
+
+```
+
+
+```{r}
+cor(mydata_sub[c("PhysicalAct", "Obesity", "Access", "PopulationCount", "Lat", "Lng", "SmokingPct", "MedianAQI", "RenterOccupiedPct", "UnempRatePct", "CashPublicAssistPct", "SNAPPct", "NoHealthInsCovPct", "BelowPovLevelPct")])
+
+```
+
+## Transform the predictor variables
+
+```{r}
+library(alr3)
+library(R330)
+```
+
+```{r}
+set.seed(123)
+
+# longitude was made positive because powerTransform won't run on negative values 
+
+fit=lm(AsthmaPct~PopulationCount+Lat+abs(Lng)+SmokingPct+Access+Obesity+PhysicalAct+MaxAQI+MaxAQI2+MedianAQI+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South, data=mydata_sub)
+
+powerTransform(fit)
+
+summary(powerTransform( with( mydata_sub, cbind(PopulationCount,Lat,abs(Lng),SmokingPct,Access,Obesity,PhysicalAct,MaxAQI,MaxAQI2,MedianAQI,RenterOccupiedPct,UnempRatePct,CashPublicAssistPct,SNAPPct,NoHealthInsCovPct,BelowPovLevelPct))))
+
+```
+
+
+Run powerTransform on all the possible predictor variables. The polution/air quality predictor are sparsely populated. Rather than impute them we will are omiting any NA values. This will reduce the remain rows by approx 50% to 107 rows.
+
+
+```{r}
+summary(fit)
+```
+
+```{r}
+
+xformed_data = mydata_sub
+
+# Only those variable transformed are shown here, unchanges are copied from above.
+#xformed_data$AsthmaPct=(mydata_sub$AsthmaPct)^0.05
+xformed_data$logAsthmaPct=log(mydata_sub$AsthmaPct)
+
+xformed_data$PopulationCount=(mydata_sub$PopulationCount)^(-0.8)
+xformed_data$Lat=(mydata_sub$Lat)^2
+xformed_data$Lng=(abs(mydata_sub$Lng))
+xformed_data$Access=mydata_sub$Access^0.25
+xformed_data$PhysicalAct=sqrt(mydata_sub$PhysicalAct)
+xformed_data$MaxAQI=mydata_sub$MaxAQI^(-0.33)
+  # 1/(mydata_sub$MaxAQI)
+  # was also log(mydata_sub$MaxAQI)
+xformed_data$MedianAQI=mydata_sub$MedianAQI^(0.63)
+  # was log(mydata_sub$MedianAQI)
+
+xformed_data$UnempRatePct=log(mydata_sub$UnempRatePct)
+xformed_data$CashPublicAssistPct=log(mydata_sub$CashPublicAssistPct)
+xformed_data$SNAPPct=sqrt(mydata_sub$SNAPPct)
+xformed_data$NoHealthInsCovPct=sqrt(mydata_sub$NoHealthInsCovPct)
+xformed_data$BelowPovLevelPct=sqrt(mydata_sub$BelowPovLevelPct)
+
+# Unchanged
+#xformed_data$MaxAQI2=log(mydata_sub$MaxAQI2)
+#xformed_data$SmokingPct=log(mydata_sub$SmokingPct)
+#xformed_data$Obesity=(mydata_sub$Obesity)
+#xformed_data$RenterOccupiedPct=(mydata_sub$RenterOccupiedPct)
+#xformed_data$Midwest=mydata_sub$Midwest
+#xformed_data$Northeast=mydata_sub$Northeast
+#xformed_data$South=mydata_sub$South
+#West=mydata_sub$West
+
+names(xformed_data)
+```
+
+
+Split the data into separate training and test sets containing 80% and 20% respectfully of the observations.
+
+```{r}
+set.seed(123)
+sample<-sample.int(n=nrow(xformed_data),
+                   size=floor(.80*nrow(xformed_data)),replace=F)
+train.set <- xformed_data[sample,] #train data
+test.set <- xformed_data[-sample,] #test data
+
+cat("Training set dim:", dim(train.set),"\n")
+cat("Test set dim:", dim(test.set),"\n")
+
+```
+
+Note from here on the train.set is used.
+
+```{r}
+library(sandwich)
+library(car)
+library(lmtest)
+```
+
+## Fit the transformed variables
+
+```{r}
+
+fit.transform=lm(logAsthmaPct~PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+UnhealthyDays+VeryUnhealthyDays+HazardousDays, data=train.set)
+
+
+#overall tests
+print("VIF test")
+vif(fit.transform)
+print("ncvTest")
+ncvTest(fit.transform)
+print("summary")
+summary(fit.transform)
+print("coeftest")
+coeftest(fit.transform, vcov. = vcovHC(fit.transform, type = "HC1"))
+```
+
+```{r}
+#Population Count - Needs to be logged, heteroscedastic
+shapiro.test(xformed_data$PopulationCount)
+hist(xformed_data$PopulationCount)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$PopulationCount)
+plot(xformed_data$logAsthmaPct~xformed_data$PopulationCount)
+```
+
+```{r}
+#Barely not normal - probabily fine, this was not transformed.
+shapiro.test(xformed_data$SmokingPct)
+hist(xformed_data$SmokingPct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$SmokingPct)
+plot(xformed_data$logAsthmaPct~xformed_data$SmokingPct)
+```
+
+```{r}
+#Slightly skewed but probably fine
+shapiro.test(xformed_data$Access)
+hist(xformed_data$Access)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$Access)
+plot(xformed_data$logAsthmaPct~xformed_data$Access)
+```
+
+
+```{r}
+#Barely not normal - probably ok - this was not transformed.
+shapiro.test(xformed_data$Obesity)
+hist(xformed_data$Obesity)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$Obesity)
+plot(xformed_data$logAsthmaPct~xformed_data$Obesity)
+
+```
+
+```{r}
+#Barely not normal - probably ok
+shapiro.test(xformed_data$PhysicalAct)
+hist(xformed_data$PhysicalAct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$PhysicalAct)
+plot(xformed_data$logAsthmaPct~xformed_data$PhysicalAct)
+
+```
+
+```{r}
+shapiro.test(xformed_data$MaxAQI)
+hist(xformed_data$MaxAQI)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$MaxAQI)
+plot(xformed_data$logAsthmaPct~xformed_data$MaxAQI)
+
+```
+
+```{r}
+#Fine - this is discrete data (not continous)
+shapiro.test(xformed_data$MaxAQI2)
+hist(xformed_data$MaxAQI2)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$MaxAQI2)
+plot(xformed_data$logAsthmaPct~xformed_data$MaxAQI2)
+
+```
+
+```{r}
+shapiro.test(xformed_data$MedianAQI)
+hist(xformed_data$MedianAQI)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$MedianAQI)
+plot(xformed_data$logAsthmaPct~xformed_data$MedianAQI)
+
+```
+
+```{r}
+#Barely Not Normal - probably fine
+shapiro.test(xformed_data$RenterOccupiedPct)
+hist(xformed_data$RenterOccupiedPct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$RenterOccupiedPct)
+plot(xformed_data$logAsthmaPct~xformed_data$RenterOccupiedPct)
+
+```
+
+```{r}
+#Fairly not normal - but probaby ok
+shapiro.test(xformed_data$UnempRatePct)
+hist(xformed_data$UnempRatePct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$UnempRatePct)
+plot(xformed_data$logAsthmaPct~xformed_data$UnempRatePct)
+
+```
+
+```{r}
+#barely not normal, some evidence of heteroscedasicty, but probably ok
+shapiro.test(xformed_data$CashPublicAssistPct)
+hist(xformed_data$CashPublicAssistPct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$CashPublicAssistPct)
+plot(xformed_data$logAsthmaPct~xformed_data$CashPublicAssistPct)
+
+```
+
+```{r}
+#barely not normal, maybe a little heteroscedastic, but probably ok
+shapiro.test(xformed_data$SNAPPct)
+hist(xformed_data$SNAPPct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$SNAPPct)
+plot(xformed_data$logAsthmaPct~xformed_data$SNAPPct)
+
+```
+
+```{r}
+#fairly not normal and heteroscedastic, so it should be logged, maybe it helped a little
+shapiro.test(xformed_data$NoHealthInsCovPct)
+hist(xformed_data$NoHealthInsCovPct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$NoHealthInsCovPct)
+plot(xformed_data$logAsthmaPct~xformed_data$NoHealthInsCovPct)
+```
+
+```{r}
+#not normal and heteroscedastic, so probably should be logged but doesn't appear to solve much
+shapiro.test(xformed_data$BelowPovLevelPct)
+hist(xformed_data$BelowPovLevelPct)
+par(mfrow=c(2,2))
+plot(mydata_sub$AsthmaPct~mydata_sub$BelowPovLevelPct)
+plot(xformed_data$logAsthmaPct~xformed_data$BelowPovLevelPct)
+
+```
+
+
+
+
+
+
+## Fix any multicollinearity issues.
+
+Removed UnhealthyDays(12.933190 / 12.719325)
+```{r}
+
+fit.transform.vif=lm(logAsthmaPct~PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+VeryUnhealthyDays+HazardousDays, data=train.set)
+
+vif(fit.transform.vif)
+
+```
+
+Next highest is  PhysicalAct=10.959835 / 10.946968
+```{r}
+
+fit.transform.vif=lm(logAsthmaPct~PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+VeryUnhealthyDays+HazardousDays, data=train.set)
+
+vif(fit.transform.vif)
+```
+Next highest is  SNAPPct=10.218472 / 10.228399
+```{r}
+
+fit.transform.vif=lm(logAsthmaPct~PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+VeryUnhealthyDays+HazardousDays, data=train.set)
+
+vif(fit.transform.vif)
+ncvTest(fit.transform.vif)
+```
+
+## Remove insignificant variables 
+
+Rather than manually iterating and removing the highest p-value until only significant variables remained, model.select function is used to do it automatically.
+
+```{r}
+library(lmtest)
+
+fit.transform.sig = model.select(fit.transform.vif, verbose=FALSE)
+
+summary(fit.transform.sig)
+
+vif(fit.transform.sig)
+
+par(mfrow=c(2,2))
+plot(fit.transform.sig)
+
+par(mfrow=c(1,1))
+plot(fit.transform.sig$residuals)
+
+plot(fit.transform.sig, which=4)
+
+ncvTest(fit.transform.sig)
+resettest(fit.transform.sig)
+boxCox(fit.transform.sig)
+coeftest(fit.transform.sig, vcov. = vcovHC(fit.transform.sig, type = "HC1"))
+```
+
+
+
+## Final Model
+
+This is the final handcrafted model. Other models based on auto selection will be below and all wil be compared. This model is the same as fit.transform.sig. 
+
+```{r}
+
+fit.final.transform=lm(logAsthmaPct ~ PopulationCount + Lat + SmokingPct + 
+    Access + Obesity + MaxAQI + UnempRatePct + CashPublicAssistPct + 
+    BelowPovLevelPct + Midwest + Northeast + South, data=train.set)
+
+vif(fit.final.transform)
+ncvTest(fit.final.transform)
+summary(fit.final.transform)
+
+par(mfrow=c(2,2))
+plot(fit.final.transform)
+
+par(mfrow=c(1,1))
+plot(fit.final.transform$residuals)
+plot(fit.final.transform, which=4)
+
+```
+
+From ncvTest ( pvalue > 0.05), we fail to reject $H_0$ which says the model is homoscedastic.
+From resettest (pvalue > 0.05), we fail to reject $H_0$ which says no further transformation is needed.
+
+The residual diagnositc plot looks well spreadout around 0.
+Normal Q-Q reflects the model is reasonble normal.
+
+Cook's distance reports the following observations:
+  20, 338, 326
+  
+
+## Model Testing
+
+```{r}
+# Data frame to collect the RMSE test results.
+# Initialize dataframe for storing the model test results.
+df.rmse.results = data.frame(matrix(ncol = 3, nrow = 0))
+colnames(df.rmse.results) = c("Model", "RMSE", "Time")
+
+# Utility function to add a test result to the global
+# variable df.rmse.results
+add_rmse_test_result = function(name, result) {
+  rmse = round(result, digits=4)
+  cat(name, " RMSE = ", rmse, "\n")
+
+  current_time = Sys.time()
+  x = data.frame("Model"=name, "RMSE"=rmse, "Time"=current_time)
+  df.rmse.results <<- rbind(df.rmse.results, x)
+  
+  return (df.rmse.results)
+}
+```
+
+```{r}
+calc_loocv_rmse = function(model) {
+  sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+}
+```
+
+```{r}
+null.fit = lm( logAsthmaPct ~ 1, data=train.set)
+```
+
+```{r}
+
+rmse.fit.final.transform = sqrt(mean((test.set$AsthmaPct - exp(predict(fit.final.transform,newdata=test.set)))^2))
+
+add_rmse_test_result("fit.final.transform", rmse.fit.final.transform)
+```
+
+
+## AIC
+```{r}
+fit.transform.aic=step(fit.transform,direction="backward",trace=FALSE)
+summary(fit.transform.aic)
+vif(fit.transform.aic)
+ncvTest(fit.transform.aic)
+
+calc_loocv_rmse(fit.transform.aic)
+
+rmse.aic = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.aic,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(backward)", rmse.aic)
+
+```
+
+```{r}
+#interaction variable for backward aic but with reduced final aic model 
+fit.transform.interaction.for.backward.aic=lm(logAsthmaPct~(PopulationCount + Lat + SmokingPct + 
+    Access + Obesity + PhysicalAct + MaxAQI + UnempRatePct + 
+    CashPublicAssistPct + BelowPovLevelPct + Midwest + Northeast + 
+    South)^2, data=train.set)
+
+fit.transform.interaction.bwd.aic=step(fit.transform.interaction.for.backward.aic,
+                                       direction="backward",
+                                       trace=FALSE)
+
+summary(fit.transform.interaction.bwd.aic)
+vif(fit.transform.interaction.bwd.aic)
+ncvTest(fit.transform.interaction.bwd.aic)
+
+calc_loocv_rmse(fit.transform.interaction.bwd.aic)
+
+rmse.aic.interaction.bwd = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.interaction.bwd.aic,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(backward) with Interaction", rmse.aic.interaction.bwd)
+```
+
+```{r}
+fit.transform.aic.fwd = step(
+  null.fit,
+  scope=list(upper=fit.transform),
+  direction = "forward",
+  trace=FALSE
+)
+
+summary(fit.transform.aic.fwd)
+vif(fit.transform.aic.fwd)
+ncvTest(fit.transform.aic.fwd)
+
+calc_loocv_rmse(fit.transform.aic.fwd)
+
+rmse.aic.fwd = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.aic.fwd,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(forward)", rmse.aic.fwd)
+
+```
+
+```{r}
+#interaction variable for forward aic using reduced aic forward model 
+fit.transform.interaction.for.fwd.aic.reduced=lm(logAsthmaPct~(SNAPPct + Access + SmokingPct + Midwest + 
+    South + Obesity + PopulationCount + PhysicalAct + Lng + UnempRatePct + 
+    RenterOccupiedPct + MaxAQI + Northeast + CashPublicAssistPct)^2, data=train.set)
+
+fit.transform.aic.fwd.interaction.reduced = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction.for.fwd.aic.reduced),
+  direction = "forward",
+  trace=FALSE
+)
+
+summary(fit.transform.aic.fwd.interaction.reduced)
+vif(fit.transform.aic.fwd.interaction.reduced)
+ncvTest(fit.transform.aic.fwd.interaction.reduced)
+
+calc_loocv_rmse(fit.transform.aic.fwd.interaction.reduced)
+
+rmse.aic.fwd.interaction.reduced = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.aic.fwd.interaction.reduced,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(forward) w/ interactions reduced", rmse.aic.fwd.interaction.reduced)
+```
+
+```{r}
+#interaction variables using forward but full model instead of final reduced forward model 
+fit.transform.interaction=lm(logAsthmaPct~(PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+UnhealthyDays+VeryUnhealthyDays+HazardousDays)^2, data=train.set)
+  
+fit.transform.aic.fwd.interaction.full = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction),
+  direction = "forward",
+  trace=FALSE
+)
+
+summary(fit.transform.aic.fwd.interaction.full)
+vif(fit.transform.aic.fwd.interaction.full)
+ncvTest(fit.transform.aic.fwd.interaction.full)
+
+calc_loocv_rmse(fit.transform.aic.fwd.interaction.full)
+
+rmse.aic.fwd.interaction.full = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.aic.fwd.interaction.full,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(forward) w/ interactions full", rmse.aic.fwd.interaction.full)
+```
+
+```{r}
+fit.transform.aic.both = step(
+  null.fit,
+  scope=list(upper=fit.transform), 
+  direction = "both",
+  trace = FALSE
+  )
+
+summary(fit.transform.aic.both)
+vif(fit.transform.aic.both)
+ncvTest(fit.transform.aic.both)
+
+rmse.aic.both = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.aic.both,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(both)", rmse.aic.both)
+
+```
+
+```{r}
+#interaction variables with reduced fit.transform based on aic both
+fit.transform.interaction.for.aic.both=lm(logAsthmaPct~(SNAPPct + Access + SmokingPct + Midwest + 
+    South + Obesity + PopulationCount + PhysicalAct + UnempRatePct + 
+    RenterOccupiedPct + MaxAQI + Northeast + CashPublicAssistPct)^2, data=train.set)
+
+fit.transform.interaction.aic.both.reduced = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction.for.aic.both), 
+  direction = "both",
+  trace = FALSE
+  )
+
+summary(fit.transform.interaction.aic.both.reduced)
+vif(fit.transform.interaction.aic.both.reduced)
+ncvTest(fit.transform.interaction.aic.both.reduced)
+
+rmse.aic.both.interaction.reduced = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.interaction.aic.both.reduced,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(both) w/ interactions reduced", rmse.aic.both.interaction.reduced)
+```
+
+```{r}
+#interaction variables with full fit.transform based on aic both
+fit.transform.aic.both.interaction.full = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction), 
+  direction = "both",
+  trace = FALSE
+  )
+
+summary(fit.transform.aic.both.interaction.full)
+vif(fit.transform.aic.both.interaction.full)
+ncvTest(fit.transform.aic.both.interaction.full)
+
+rmse.aic.both.interaction.full = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.aic.both.interaction.full,newdata=test.set)))^2))
+
+add_rmse_test_result("AIC step(both) w/ interactions full", rmse.aic.both.interaction.full)
+```
+
+## BIC
+```{r}
+n = length(resid(fit.transform)) 
+fit.transform.bic = step(fit.transform, 
+                         direction = "backward", 
+                         k = log(n), 
+                         trace = FALSE)
+
+summary(fit.transform.bic)
+vif(fit.transform.bic)
+ncvTest(fit.transform.bic)
+
+calc_loocv_rmse(fit.transform.bic)
+
+rmse.bic = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(backward)", rmse.bic)
+
+```
+
+```{r}
+#backward bic with interaction from reduced fit.transform
+n = length(resid(fit.transform.interaction)) 
+
+fit.transform.interaction.for.bic.bwd=lm(logAsthmaPct~(Lat + SmokingPct + Obesity + PhysicalAct + 
+    MaxAQI + UnempRatePct + BelowPovLevelPct + Midwest + Northeast + 
+    South)^2, data=train.set)
+
+fit.transform.interaction.bwd.bic.reduced = step(fit.transform.interaction.for.bic.bwd, 
+                         direction = "backward", 
+                         k = log(n), 
+                         trace = FALSE)
+
+summary(fit.transform.interaction.bwd.bic.reduced)
+vif(fit.transform.interaction.bwd.bic.reduced)
+ncvTest(fit.transform.interaction.bwd.bic.reduced)
+
+calc_loocv_rmse(fit.transform.interaction.bwd.bic.reduced)
+
+rmse.bic.bwd.interaction.reduced = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.interaction.bwd.bic.reduced,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(backward) w/ interaction", rmse.bic.bwd.interaction.reduced)
+```
+
+```{r}
+n = dim(train.set)[1] 
+
+fit.transform.bic.fwd = step(
+  null.fit,
+  scope=list(upper=fit.transform),
+  direction = "forward",
+  k = log(n),
+  trace = FALSE
+)
+
+summary(fit.transform.bic.fwd)
+vif(fit.transform.bic.fwd)
+ncvTest(fit.transform.bic.fwd)
+
+calc_loocv_rmse(fit.transform.bic.fwd)
+
+rmse.bic.fwd = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic.fwd,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(forward)", rmse.bic.fwd)
+
+```
+
+```{r}
+#forward bic with interaction variables from reduced fit.transform
+n = dim(train.set)[1] 
+
+fit.transform.interaction.for.forward.bic=lm(logAsthmaPct~(SNAPPct + Access + SmokingPct + Midwest + 
+    South + Obesity + PopulationCount)^2, data=train.set)
+
+fit.transform.bic.fwd.interaction.reduced = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction.for.forward.bic),
+  direction = "forward",
+  k = log(n),
+  trace = FALSE
+)
+
+summary(fit.transform.bic.fwd.interaction.reduced)
+vif(fit.transform.bic.fwd.interaction.reduced)
+ncvTest(fit.transform.bic.fwd.interaction.reduced)
+
+calc_loocv_rmse(fit.transform.bic.fwd.interaction.reduced)
+
+rmse.bic.fwd.interaction.reduced = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic.fwd.interaction.reduced,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(forward) w/ interaction reduced", rmse.bic.fwd.interaction.reduced)
+```
+
+```{r}
+#bic transform forward using full fit.transform 
+n = dim(train.set)[1] 
+
+fit.transform.bic.fwd.interaction.full = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction),
+  direction = "forward",
+  k = log(n),
+  trace = FALSE
+)
+
+summary(fit.transform.bic.fwd.interaction.full)
+vif(fit.transform.bic.fwd.interaction.full)
+ncvTest(fit.transform.bic.fwd.interaction.full)
+
+calc_loocv_rmse(fit.transform.bic.fwd.interaction.full)
+
+rmse.bic.fwd.interaction.full = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic.fwd.interaction.full,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(forward) w/ interaction full", rmse.bic.fwd.interaction.full)
+```
+
+
+```{r}
+n = dim(train.set)[1] 
+
+fit.transform.bic.both = step(
+  null.fit,
+  scope=list(upper=fit.transform),
+  direction = "both",
+  k = log(n),
+  trace = FALSE
+)
+
+summary(fit.transform.bic.both)
+vif(fit.transform.bic.both)
+ncvTest(fit.transform.bic.both)
+
+calc_loocv_rmse(fit.transform.bic.both)
+
+rmse.bic.both = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic.both,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(both)", rmse.bic.both)
+
+```
+
+```{r}
+#bic both interactions with reduced 
+
+fit.transform.interaction.for.both.bic=lm(logAsthmaPct~(SNAPPct + Access + SmokingPct + Midwest + 
+    South + Obesity + PopulationCount)^2, data=train.set)
+
+fit.transform.bic.both.interaction.reduced = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction.for.both.bic), 
+  direction = "both",
+  k = log(n),
+  trace = FALSE
+  )
+
+summary(fit.transform.bic.both.interaction.reduced)
+vif(fit.transform.bic.both.interaction.reduced)
+ncvTest(fit.transform.bic.both.interaction.reduced)
+
+rmse.bic.both.interaction.reduced = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic.both.interaction.reduced,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(both) w/ interaction reduced", rmse.bic.both.interaction.reduced)
+```
+
+```{r}
+#bic both interactions
+fit.transform.bic.both.interaction.full = step(
+  null.fit,
+  scope=list(upper=fit.transform.interaction), 
+  direction = "both",
+  k = log(n),
+  trace = FALSE
+  )
+
+summary(fit.transform.bic.both.interaction.full)
+vif(fit.transform.bic.both.interaction.full)
+ncvTest(fit.transform.bic.both.interaction.full)
+
+rmse.bic.both.interaction.full = sqrt(mean((test.set$AsthmaPct-exp(predict(fit.transform.bic.both.interaction.full,newdata=test.set)))^2))
+
+add_rmse_test_result("BIC step(both) w/ interaction full", rmse.bic.both.interaction.full)
+```
+
+## Ridge Regression
+
+```{r}
+library(glmnet)
+```
+
+```{r}
+x = model.matrix(AsthmaPct~.-logAsthmaPct,train.set)[,-1]
+y = train.set$AsthmaPct
+cv=cv.glmnet(x,y,alpha=0)
+fit.ridge = glmnet(x,y,alpha=0,lambda=cv$lambda.min)
+x.test=model.matrix(AsthmaPct~.-logAsthmaPct,test.set)
+fits.ridge = x.test%*%coef(fit.ridge)
+rmse.ridge = sqrt(mean((test.set$AsthmaPct-fits.ridge)^2))
+
+add_rmse_test_result("Ridge Regression", rmse.ridge)
+
+coef(fit.ridge)
+
+```
+
+```{r}
+x = model.matrix(AsthmaPct~(PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+UnhealthyDays+VeryUnhealthyDays+HazardousDays)^2,train.set)[,-1]
+y = train.set$AsthmaPct
+cv=cv.glmnet(x,y,alpha=0)
+fit.ridge.interaction = glmnet(x,y,alpha=0,lambda=cv$lambda.min)
+x.test.interaction=model.matrix(AsthmaPct~(PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+UnhealthyDays+VeryUnhealthyDays+HazardousDays)^2,test.set)
+fits.ridge.interaction = x.test.interaction%*%coef(fit.ridge.interaction)
+rmse.ridge.interaction = sqrt(mean((test.set$AsthmaPct-fits.ridge.interaction)^2))
+
+add_rmse_test_result("Ridge Regression with Interaction", rmse.ridge.interaction)
+
+coef(fit.ridge.interaction)
+```
+
+## Lasso Regression
+```{r}
+x = model.matrix(AsthmaPct~.-logAsthmaPct,train.set)[,-1]
+y = train.set$AsthmaPct
+cv=cv.glmnet(x,y,alpha=1)
+fit.lasso = glmnet(x,y,alpha=1,lambda=cv$lambda.min)
+
+coef(fit.lasso)
+
+x.test=model.matrix(AsthmaPct~.-logAsthmaPct,test.set)
+fits.lasso = x.test%*%coef(fit.lasso)
+rmse.lasso = sqrt(mean((fits.lasso-test.set$AsthmaPct)^2))
+
+add_rmse_test_result("Lasso Regression", rmse.lasso)
+
+```
+
+```{r}
+x = model.matrix(AsthmaPct~(PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+UnhealthyDays+VeryUnhealthyDays+HazardousDays)^2,train.set)[,-1]
+y = train.set$AsthmaPct
+cv=cv.glmnet(x,y,alpha=1)
+fit.lasso.interaction = glmnet(x,y,alpha=1,lambda=cv$lambda.min)
+
+coef(fit.lasso.interaction)
+
+x.test=model.matrix(AsthmaPct~(PopulationCount+Lat+Lng+SmokingPct+Access+Obesity+PhysicalAct+MedianAQI+MaxAQI+MaxAQI2+RenterOccupiedPct+UnempRatePct+CashPublicAssistPct+SNAPPct+NoHealthInsCovPct+BelowPovLevelPct+Midwest+Northeast+South+GoodDays+UnhealthyforSensitiveGroupsDays+UnhealthyDays+VeryUnhealthyDays+HazardousDays)^2,test.set)
+fits.lasso.interaction = x.test%*%coef(fit.lasso.interaction)
+rmse.lasso.interaction = sqrt(mean((fits.lasso.interaction-test.set$AsthmaPct)^2))
+
+add_rmse_test_result("Lasso Regression with Interaction", rmse.lasso.interaction)
+```
+
+## Models results
+```{r fig.height = 8, fig.width = 11}
+
+# Sort in descending order by RMSE
+df.rmse.results = df.rmse.results[with(df.rmse.results, order(-RMSE)), ]
+
+op <- par(mar=c(5,25,5,5))
+bp = barplot(height=df.rmse.results$RMSE, 
+        names=df.rmse.results$Model, horiz=TRUE,
+        xlab="RMSE",
+        main="Model Comparison (RMSE)",
+        las=1,
+        col="skyblue"
+        )
+rm(op)
+
+# Add the RMSE as labels for readbility.
+text(y=bp, x=df.rmse.results$RMSE, pos=2, labels = df.rmse.results$RMSE)
+
+df.rmse.results
+
+# Save results to CSV
+write.csv(df.rmse.results, 
+          file = "AsthmaPredictors_RMSE_Results.csv",
+          row.names = FALSE)
+```

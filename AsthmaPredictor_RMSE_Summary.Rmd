@@ -1,0 +1,53 @@
+---
+title: "AsthmaPredictor_RMSE_Summary"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file reads in a csv of model RMSE test results. Orders by the model name and takes their average.
+
+## Read results
+```{r}
+
+# Save raw results to CSV
+df.rmse.results = read.csv("AsthmaPredictors_RMSE_Results.csv")
+```
+
+## Aggregate
+
+```{r}
+df.rmse.agg = aggregate(df.rmse.results[, 2], list(df.rmse.results$Model), mean)
+colnames(df.rmse.agg) = c("Model", "RMSE")
+df.rmse.agg$Time = Sys.time() 
+
+df.rmse.agg = df.rmse.agg[with(df.rmse.agg, order(-RMSE)), ]
+
+df.rmse.agg$RMSE = round(df.rmse.agg$RMSE, digits=4)
+
+```
+
+## Plot
+
+```{r fig.height = 8, fig.width = 11}
+
+op <- par(mar=c(5,25,5,5))
+bp = barplot(height=df.rmse.agg$RMSE, 
+        names=df.rmse.agg$Model, horiz=TRUE,
+        xlab="RMSE",
+        main="Model Comparison (RMSE)",
+        las=1,
+        col="skyblue"
+        )
+rm(op)
+
+# Add the RMSE as labels for readbility.
+text(y=bp, x=df.rmse.agg$RMSE, pos=2, labels = df.rmse.agg$RMSE)
+
+df.rmse.agg
+
+# Save aggregated results to CSV
+write.csv(df.rmse.agg, file = "AsthmaPredictors_RMSE_Results_summary.csv")
+```

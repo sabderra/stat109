@@ -1,0 +1,22 @@
+"","Model","RMSE","Time"
+"21","Ridge Regression with Interaction",0.6861,2019-05-04 02:36:58
+"11","BIC step(both)",0.6568,2019-05-04 02:36:58
+"14","BIC step(forward)",0.6547,2019-05-04 02:36:58
+"9","BIC step(backward)",0.6234,2019-05-04 02:36:58
+"15","BIC step(forward) w/ interaction full",0.6217,2019-05-04 02:36:58
+"13","BIC step(both) w/ interaction reduced",0.6183,2019-05-04 02:36:58
+"16","BIC step(forward) w/ interaction reduced",0.6183,2019-05-04 02:36:58
+"3","AIC step(both)",0.6161,2019-05-04 02:36:58
+"18","Lasso Regression",0.6138,2019-05-04 02:36:58
+"7","AIC step(forward) w/ interactions full",0.6126,2019-05-04 02:36:58
+"5","AIC step(both) w/ interactions reduced",0.6114,2019-05-04 02:36:58
+"6","AIC step(forward)",0.6101,2019-05-04 02:36:58
+"1","AIC step(backward)",0.6079,2019-05-04 02:36:58
+"20","Ridge Regression",0.6077,2019-05-04 02:36:58
+"17","fit.final.transform",0.5962,2019-05-04 02:36:58
+"12","BIC step(both) w/ interaction full",0.5952,2019-05-04 02:36:58
+"4","AIC step(both) w/ interactions full",0.5711,2019-05-04 02:36:58
+"2","AIC step(backward) with Interaction",0.558,2019-05-04 02:36:58
+"8","AIC step(forward) w/ interactions reduced",0.5416,2019-05-04 02:36:58
+"10","BIC step(backward) w/ interaction",0.5184,2019-05-04 02:36:58
+"19","Lasso Regression with Interaction",0.483,2019-05-04 02:36:58
