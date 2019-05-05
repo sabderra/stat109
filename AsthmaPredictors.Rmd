@@ -150,7 +150,6 @@ summary(fit)
 xformed_data = mydata_sub
 
 # Only those variable transformed are shown here, unchanges are copied from above.
-#xformed_data$AsthmaPct=(mydata_sub$AsthmaPct)^0.05
 xformed_data$logAsthmaPct=log(mydata_sub$AsthmaPct)
 
 xformed_data$PopulationCount=(mydata_sub$PopulationCount)^(-0.8)
@@ -159,26 +158,13 @@ xformed_data$Lng=(abs(mydata_sub$Lng))
 xformed_data$Access=mydata_sub$Access^0.25
 xformed_data$PhysicalAct=sqrt(mydata_sub$PhysicalAct)
 xformed_data$MaxAQI=mydata_sub$MaxAQI^(-0.33)
-  # 1/(mydata_sub$MaxAQI)
-  # was also log(mydata_sub$MaxAQI)
 xformed_data$MedianAQI=mydata_sub$MedianAQI^(0.63)
-  # was log(mydata_sub$MedianAQI)
 
 xformed_data$UnempRatePct=log(mydata_sub$UnempRatePct)
 xformed_data$CashPublicAssistPct=log(mydata_sub$CashPublicAssistPct)
 xformed_data$SNAPPct=sqrt(mydata_sub$SNAPPct)
 xformed_data$NoHealthInsCovPct=sqrt(mydata_sub$NoHealthInsCovPct)
 xformed_data$BelowPovLevelPct=sqrt(mydata_sub$BelowPovLevelPct)
-
-# Unchanged
-#xformed_data$MaxAQI2=log(mydata_sub$MaxAQI2)
-#xformed_data$SmokingPct=log(mydata_sub$SmokingPct)
-#xformed_data$Obesity=(mydata_sub$Obesity)
-#xformed_data$RenterOccupiedPct=(mydata_sub$RenterOccupiedPct)
-#xformed_data$Midwest=mydata_sub$Midwest
-#xformed_data$Northeast=mydata_sub$Northeast
-#xformed_data$South=mydata_sub$South
-#West=mydata_sub$West
 
 names(xformed_data)
 ```
@@ -187,7 +173,7 @@ names(xformed_data)
 Split the data into separate training and test sets containing 80% and 20% respectfully of the observations.
 
 ```{r}
-set.seed(123)
+set.seed(42)
 sample<-sample.int(n=nrow(xformed_data),
                    size=floor(.80*nrow(xformed_data)),replace=F)
 train.set <- xformed_data[sample,] #train data
@@ -451,7 +437,53 @@ Normal Q-Q reflects the model is reasonble normal.
 
 Cook's distance reports the following observations:
   20, 338, 326
-  
+
+```{r fig.height = 8, fig.width = 11}
+df.outliers = data.frame()
+df.outliers = rbind(df.outliers, mydata[20,])
+df.outliers = rbind(df.outliers, mydata[338,])
+df.outliers = rbind(df.outliers, mydata[326,])
+
+df.outliers
+
+par(mfrow=c(4,2))
+
+plot(xformed_data$logAsthmaPct, xformed_data$PopulationCount)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "PopulationCount"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "PopulationCount"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "PopulationCount"], col = "red", pch=19)
+
+plot(xformed_data$logAsthmaPct, xformed_data$SmokingPct)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "SmokingPct"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "SmokingPct"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "SmokingPct"], col = "red", pch=19)
+
+plot(xformed_data$logAsthmaPct, xformed_data$Obesity)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "Obesity"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "Obesity"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "Obesity"], col = "red", pch=19)
+
+plot(xformed_data$logAsthmaPct, xformed_data$Access)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "Access"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "Access"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "Access"], col = "red", pch=19)
+
+plot(xformed_data$logAsthmaPct, xformed_data$UnempRatePct)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "UnempRatePct"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "UnempRatePct"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "UnempRatePct"], col = "red", pch=19)
+
+plot(xformed_data$logAsthmaPct, xformed_data$CashPublicAssistPct)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "CashPublicAssistPct"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "CashPublicAssistPct"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "CashPublicAssistPct"], col = "red", pch=19)
+
+plot(xformed_data$logAsthmaPct, xformed_data$BelowPovLevelPct)
+points(xformed_data["20", "logAsthmaPct"], xformed_data["20", "BelowPovLevelPct"], col = "red", pch=19)
+points(xformed_data["326", "logAsthmaPct"], xformed_data["326", "BelowPovLevelPct"], col = "red", pch=19)
+points(xformed_data["338", "logAsthmaPct"], xformed_data["338", "BelowPovLevelPct"], col = "red", pch=19)
+
+```
 
 ## Model Testing
 
@@ -879,6 +911,12 @@ cv=cv.glmnet(x,y,alpha=1)
 fit.lasso = glmnet(x,y,alpha=1,lambda=cv$lambda.min)
 
 coef(fit.lasso)
+
+### Validation of RMSE
+x.train=model.matrix(AsthmaPct~.-logAsthmaPct,train.set)
+fit.train.lasso = x.train%*%coef(fit.lasso)
+rmse.train.lasso = sqrt(mean((fit.train.lasso-train.set$AsthmaPct)^2))
+rmse.train.lasso
 
 x.test=model.matrix(AsthmaPct~.-logAsthmaPct,test.set)
 fits.lasso = x.test%*%coef(fit.lasso)
